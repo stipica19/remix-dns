@@ -1,5 +1,8 @@
 import { Form } from "@remix-run/react";
 import { useState } from "react";
+import { Label } from "./ui/label";
+import { Button } from "./ui/button";
+import { Input } from "./ui/input";
 
 export default function AddRecord({ onCancel }: { onCancel: () => void }) {
   const [type, setType] = useState("");
@@ -7,24 +10,27 @@ export default function AddRecord({ onCancel }: { onCancel: () => void }) {
   return (
     <div className="mt-8">
       <h2 className="text-xl font-semibold mt-8">Dodaj novi DNS zapis</h2>
-      <Form method="post" className="space-y-4 mt-4 max-w-sm">
-        <div className="flex flex-col">
-          <label htmlFor="name" className="font-medium">
+      <Form
+        method="post"
+        className="mt-4 flex flex-row flex-wrap gap-4 items-end"
+      >
+        <div className="flex flex-col w-40">
+          <Label htmlFor="name" className="font-medium">
             Name
-          </label>
-          <input
+          </Label>
+          <Input
             type="text"
             name="name"
             id="name"
-            className="border p-2 rounded "
+            className="border p-2 rounded"
             required
           />
         </div>
 
-        <div className="flex flex-col">
-          <label htmlFor="type" className="font-medium">
+        <div className="flex flex-col w-40">
+          <Label htmlFor="type" className="font-medium">
             Type
-          </label>
+          </Label>
           <select
             name="type"
             id="type"
@@ -37,14 +43,15 @@ export default function AddRecord({ onCancel }: { onCancel: () => void }) {
             <option value="28">AAAA</option>
             <option value="5">CNAME</option>
             <option value="15">MX</option>
+            <option value="2">NS</option>
           </select>
         </div>
 
-        <div className="flex flex-col">
-          <label htmlFor="data" className="font-medium">
+        <div className="flex flex-col w-40">
+          <Label htmlFor="data" className="font-medium">
             Data
-          </label>
-          <input
+          </Label>
+          <Input
             type="text"
             name="data"
             id="data"
@@ -54,11 +61,11 @@ export default function AddRecord({ onCancel }: { onCancel: () => void }) {
         </div>
 
         {type === "15" && (
-          <div className="flex flex-col">
-            <label htmlFor="priority" className="font-medium">
+          <div className="flex flex-col w-40">
+            <Label htmlFor="priority" className="font-medium">
               Priority
-            </label>
-            <input
+            </Label>
+            <Input
               type="number"
               name="priority"
               id="priority"
@@ -68,10 +75,10 @@ export default function AddRecord({ onCancel }: { onCancel: () => void }) {
           </div>
         )}
 
-        <div className="flex flex-col">
-          <label htmlFor="ttl" className="font-medium">
+        <div className="flex flex-col w-40">
+          <Label htmlFor="ttl" className="font-medium">
             TTL
-          </label>
+          </Label>
           <select name="ttl" id="ttl" className="border p-2 rounded" required>
             <option value="">-- Odaberi tip --</option>
             <option value="1">1 Hour</option>
@@ -81,18 +88,21 @@ export default function AddRecord({ onCancel }: { onCancel: () => void }) {
           </select>
         </div>
 
-        <button
-          type="submit"
-          className="bg-blue-500 text-white px-4 py-2 rounded hover:bg-blue-600 mr-2"
-        >
-          Dodaj zapis
-        </button>
-        <button
-          onClick={onCancel}
-          className="bg-red-500 text-white px-4 py-2 rounded hover:bg-red-600"
-        >
-          Odustani
-        </button>
+        <div className="flex gap-2">
+          <Button
+            type="submit"
+            className="bg-blue-500 text-white px-4 py-2 rounded hover:bg-blue-600"
+          >
+            Dodaj zapis
+          </Button>
+          <Button
+            type="button"
+            onClick={onCancel}
+            className="bg-red-500 text-white px-4 py-2 rounded hover:bg-red-600"
+          >
+            Odustani
+          </Button>
+        </div>
       </Form>
     </div>
   );

@@ -1,6 +1,6 @@
+import { users } from "@prisma/client/wasm";
 import { createCookieSessionStorage, redirect } from "@remix-run/node";
 import { db } from "~/services/db.server";
-import type { users } from "@prisma/client";
 
 const sessionSecret = process.env.SESSION_SECRET || "supersecret";
 
@@ -17,7 +17,6 @@ export const sessionStorage = createCookieSessionStorage({
 
 export const { getSession, commitSession, destroySession } = sessionStorage;
 
-
 export async function getUserSession(request: Request) {
   return sessionStorage.getSession(request.headers.get("Cookie"));
 }
@@ -30,7 +29,7 @@ export async function getUserFromSession(request: Request) {
 
   // Pretpostavimo da dohvaćaš usera iz baze
   const user = await db.users.findUnique({ where: { id: userId } });
-  console.log(user)
+  //console.log(user);
   return user;
 }
 
@@ -65,16 +64,20 @@ export async function requireUser(request: Request) {
 }
 
 // Funkcija za provjeru da li je korisnik verificiran tj email mu je potvrđen
-export async function requireVerifiedUser(request: Request) :Promise<users> {
-
+export async function requireVerifiedUser(request: Request): Promise<users> {
   const user = await getUserFromSession(request);
 
-  if(!user || !user.isVerify) {
+  if (!user || !user.isVerify) {
     console.log("iffffffff", user);
-    
+
     throw redirect("/");
   }
 
   return user;
-  
+}
+export async function updateUserPassword(id: number, hashedPassword: string) {
+  return db.users.update({
+    where: { id },
+    data: { password: hashedPassword },
+  });
 }

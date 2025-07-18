@@ -32,7 +32,7 @@ export const meta = () => {
   return [
     { name: "description", content: "A cool blog built with Remix" },
     { name: "keywords", content: "remix, react, javascript" },
-    { title: "Remix Blog" }, // naslov stranice (ako želiš)
+    { title: "Dinio" }, // naslov stranice (ako želiš)
   ];
 };
 
@@ -67,6 +67,10 @@ function Document({
       <head>
         <meta charSet="utf-8" />
         <meta name="viewport" content="width=device-width,initial-scale=1" />
+        <script
+          src={`https://www.paypal.com/sdk/js?client-id=Adajw2bRJEQ4ohojAi718VYTiqsaYPM5de1t4W-V8eN1CHL9avg_ACZS7jqF8TUU54nW7Xxiz9IbGzkk&currency=EUR`}
+        />
+
         <Meta />
         <Links />
         <title>{title ?? "Dinio App"}</title>

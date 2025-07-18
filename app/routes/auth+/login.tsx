@@ -1,4 +1,4 @@
-import { Form } from "@remix-run/react";
+import { Form, Link } from "@remix-run/react";
 import { json, type ActionFunction } from "@remix-run/node";
 import bcrypt from "bcryptjs";
 import { createUserSession } from "~/utils/session.server";
@@ -46,18 +46,38 @@ export default function Login() {
     <div className="max-w-md mx-auto mt-10">
       <h1 className="text-2xl font-bold mb-4">Login</h1>
       <Form method="post" className="space-y-4">
-        <input
-          type="email"
-          name="email"
-          placeholder="Email"
-          className="w-full border p-2"
-        />
-        <input
-          type="password"
-          name="password"
-          placeholder="Password"
-          className="w-full border p-2"
-        />
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-1">
+            Email
+          </label>
+          <input
+            type="email"
+            name="email"
+            placeholder="Email"
+            className="w-full border p-2"
+          />
+        </div>
+
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-1">
+            Password
+          </label>
+          <input
+            type="password"
+            name="password"
+            placeholder="Password"
+            className="w-full border p-2"
+          />
+        </div>
+        <div className="text-right text-sm">
+          <Link
+            to="/auth/forgot-password"
+            className="text-blue-500 hover:underline"
+          >
+            Zaboravljena lozinka?
+          </Link>
+        </div>
+
         <button
           type="submit"
           className="bg-green-500 text-white px-4 py-2 rounded"
@@ -66,13 +86,21 @@ export default function Login() {
         </button>
       </Form>
       <div className="text-center my-4">ili</div>
-
       <a
         href="/auth/google"
         className="block text-center bg-blue-600 text-white px-4 py-2 rounded w-full"
       >
         Prijavi se preko Google-a
       </a>
+
+      <div className="text-center mt-4">
+        <p className="text-sm text-gray-600">
+          Nemaš račun?{" "}
+          <Link to="/auth/register" className="text-blue-500 hover:underline">
+            Registriaj se ovdje
+          </Link>
+        </p>
+      </div>
     </div>
   );
 }

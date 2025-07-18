@@ -1,6 +1,5 @@
 import { ActionFunction, json, LoaderFunction } from "@remix-run/node";
 import {
-  data,
   Form,
   Link,
   Outlet,
@@ -8,8 +7,18 @@ import {
   useActionData,
   useLoaderData,
 } from "@remix-run/react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import ConfirmDeleteModal from "~/components/ConfirmDeleteModal";
+import PaymentModal from "~/components/PaymentModal";
+import { Button } from "~/components/ui/button";
+import { Input } from "~/components/ui/input";
+import {
+  Table,
+  TableBody,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "~/components/ui/table";
 import { db } from "~/services/db.server";
 import { requireUser, requireVerifiedUser } from "~/utils/session.server";
 
@@ -19,21 +28,45 @@ interface Zone {
   user_id: number;
   disabled: boolean;
   created_at: string | Date;
+  is_active: number; // 0 or 1
 }
 
-interface ZonesTableProps {
-  zones: Zone[];
-}
+type Package = {
+  id: number;
+  name: string;
+  price_monthly: number;
+  price_yearly: number;
+  description: string;
+  package_type: string;
+};
 
 export const loader: LoaderFunction = async ({ request }) => {
   const user = await requireVerifiedUser(request);
 
   const zones = await db.zones.findMany({
-    where: { user_id: user.id },
+    where: {
+      user_id: user.id,
+    },
     orderBy: { created_at: "desc" },
+    include: {
+      zone_package: {
+        include: {
+          order_items: {
+            select: {
+              valid_until: true,
+            },
+          },
+        },
+      },
+    },
   });
 
-  return json({ zones, user });
+  const packages = await db.packages.findMany({
+    where: { package_type: "server" },
+    orderBy: { price_monthly: "asc" },
+  });
+
+  return json({ zones, packages, user });
 };
 
 export const action: ActionFunction = async ({ request }) => {
@@ -57,12 +90,10 @@ export const action: ActionFunction = async ({ request }) => {
     });
     return redirect("/zones");
   }
-  // ✅ Ako dolazi iz forme za brisanje
+
   const deleteZoneId = form.get("deleteZoneId");
   if (deleteZoneId) {
     const id = Number(deleteZoneId);
-
-    // sigurnosna provjera
     if (!isNaN(id)) {
       await db.zones.deleteMany({
         where: {
@@ -71,11 +102,9 @@ export const action: ActionFunction = async ({ request }) => {
         },
       });
     }
-
     return redirect("/zones");
   }
 
-  // ✅ Ako dolazi iz forme za dodavanje
   const zoneName = form.get("zoneName");
 
   if (
@@ -97,25 +126,61 @@ export const action: ActionFunction = async ({ request }) => {
     return json({ error: "Zona s tim imenom već postoji." }, { status: 400 });
   }
 
-  await db.zones.create({
+  const newZone = await db.zones.create({
     data: {
       name: zoneName.trim(),
       user_id: user.id,
       disabled: false,
+      is_active: 0,
       created_at: new Date(),
     },
   });
+  // Automatski dodaj NS zapise
+  await db.records.createMany({
+    data: [
+      {
+        name: "@",
+        type: 2,
+        ttl: 3600,
+        data: "ns1.dinio.com.",
+        zone_id: newZone.id,
+        user_id: user.id,
+        created_at: new Date(),
+      },
+      {
+        name: "@",
+        type: 2,
+        ttl: 3600,
+        data: "ns2.dinio.com.",
+        zone_id: newZone.id,
+        user_id: user.id,
+        created_at: new Date(),
+      },
+    ],
+  });
 
-  return redirect("/zones");
+  return json({ success: true, zoneId: newZone.id });
 };
 
 export default function Zones() {
-  const { zones } = useLoaderData<typeof loader>();
+  const { zones, user, packages } = useLoaderData<typeof loader>();
   const actionData = useActionData<typeof action>();
   const [zoneToDelete, setZoneToDelete] = useState<number | null>(null);
   const [editingZoneId, setEditingZoneId] = useState<number | null>(null);
   const [editedZoneName, setEditedZoneName] = useState("");
+  const [lastCreatedZoneId, setLastCreatedZoneId] = useState<number | null>(
+    null
+  );
+  const [showPackageModal, setShowPackageModal] = useState(false);
 
+  useEffect(() => {
+    if (actionData?.zoneId) {
+      setLastCreatedZoneId(actionData.zoneId);
+      setShowPackageModal(true);
+    }
+  }, [actionData]);
+
+  console.log(zones);
   return (
     <div className="space-y-6">
       <h1 className="text-2xl font-bold">Tvoje Zone</h1>
@@ -125,134 +190,165 @@ export default function Zones() {
         </div>
       )}
       <Form method="post" className="flex space-x-2 items-center">
-        <input
+        <Input
           type="text"
           name="zoneName"
           placeholder="Nova zona (npr. example.com)"
           className="border p-2 rounded w-full max-w-sm"
         />
-        <button
+        <Button
           type="submit"
           className="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700"
         >
           Dodaj
-        </button>
+        </Button>
       </Form>
 
+      {showPackageModal && lastCreatedZoneId && (
+        <PaymentModal
+          isOpen={true}
+          onClose={() => setShowPackageModal(false)}
+          userId={user.id}
+          zoneId={lastCreatedZoneId}
+          packages={packages} // šalješ cijelu listu paketa
+        />
+      )}
       <div className="overflow-x-auto">
-        <table className="w-full table-auto border-collapse border border-gray-300 mt-4">
-          <thead className="bg-gray-100">
-            <tr>
-              <th className="border p-2 text-left">Naziv zone</th>
-              <th className="border p-2 text-left">Kreirana</th>
-              <th className="border p-2 text-left">Status</th>
-              <th className="border p-2 text-center w-20 whitespace-nowrap">
+        <Table className="w-full table-auto border-collapse border border-gray-300 mt-4">
+          <TableHeader className="bg-gray-100">
+            <TableRow>
+              <TableHead className="border p-2 text-left">Naziv zone</TableHead>
+              <TableHead className="border p-2 text-left">Kreirana</TableHead>
+              <TableHead className="border p-2 text-left">Status</TableHead>
+              <TableHead className="border p-2 text-center w-20 whitespace-nowrap">
                 Edit
-              </th>
-              <th className="border p-2 text-center w-20 whitespace-nowrap">
+              </TableHead>
+              <TableHead className="border p-2 text-center w-20 whitespace-nowrap">
                 Delete
-              </th>
-            </tr>
-          </thead>
-          <tbody>
+              </TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
             {zones.length > 0 ? (
-              zones.map((zone: Zone) => (
-                <tr key={zone.id} className="hover:bg-gray-50">
-                  <td className="border p-2">
-                    {editingZoneId === zone.id ? (
-                      <input
-                        type="text"
-                        value={editedZoneName}
-                        onChange={(e) => setEditedZoneName(e.target.value)}
-                        className="border p-1 rounded w-full"
-                      />
-                    ) : (
-                      <Link
-                        to={`/zones/${zone.id}`}
-                        className="text-blue-600 hover:underline"
-                      >
-                        {zone.name}
-                      </Link>
-                    )}
-                  </td>
-                  <td className="border p-2">
-                    {new Date(zone.created_at).toLocaleDateString()}
-                  </td>
-                  <td className="border p-2">
-                    {zone.disabled ? "Onemogućena" : "Aktivna"}
-                  </td>
+              zones.map((zone: Zone) => {
+                const validUntil =
+                  zone.zone_package[0]?.order_items?.valid_until;
 
-                  <td className="border p-2 text-center w-1">
-                    {editingZoneId === zone.id ? (
-                      <>
-                        <Form
-                          method="post"
-                          className="inline"
-                          onSubmit={() => setEditingZoneId(null)}
+                return (
+                  <TableRow key={zone.id} className="hover:bg-gray-50">
+                    <TableHead className="border p-2">
+                      {editingZoneId === zone.id ? (
+                        <Input
+                          type="text"
+                          value={editedZoneName}
+                          onChange={(e) => setEditedZoneName(e.target.value)}
+                          className="border p-1 rounded w-full"
+                        />
+                      ) : zone.is_active ? (
+                        <Link
+                          to={`/zones/${zone.id}`}
+                          className="text-blue-600 hover:underline"
                         >
-                          <input
-                            type="hidden"
-                            name="editZoneId"
-                            value={zone.id}
-                          />
-                          <input
-                            type="hidden"
-                            name="editZoneName"
-                            value={editedZoneName}
-                          />
-                          <button
-                            type="submit"
-                            className="bg-green-600 text-white px-3 py-1 rounded hover:bg-green-700 text-sm w-20"
-                          >
-                            Spremi
-                          </button>
-                        </Form>
-                        <button
+                          {zone.name}
+                        </Link>
+                      ) : (
+                        <span>{zone.name}</span>
+                      )}
+                    </TableHead>
+                    <TableHead className="border p-2">
+                      {new Date(zone.created_at).toLocaleDateString()}
+                    </TableHead>
+                    <TableHead className="border p-2">
+                      {zone.is_active && validUntil ? (
+                        <span className="text-green-600 font-medium">
+                          Aktivna do {new Date(validUntil).toLocaleDateString()}
+                        </span>
+                      ) : (
+                        <Button
                           onClick={() => {
-                            setEditingZoneId(null);
-                            setEditedZoneName("");
+                            setLastCreatedZoneId(zone.id);
+                            setShowPackageModal(true);
                           }}
-                          className=" bg-gray-300 px-3 py-1 rounded hover:bg-gray-400 text-sm w-20"
+                          className="text-white bg-slate-700  hover:text-white-800 text-sm"
                         >
-                          Odustani
-                        </button>
-                      </>
-                    ) : (
-                      <button
-                        onClick={() => {
-                          setEditingZoneId(zone.id);
-                          setEditedZoneName(zone.name);
-                        }}
-                        className="bg-yellow-400 text-white px-3 py-1 rounded hover:bg-yellow-500 text-sm w-20 text-center"
+                          Aktiviraj / Plati
+                        </Button>
+                      )}
+                    </TableHead>
+                    <TableHead className="border p-2 text-center w-1">
+                      {editingZoneId === zone.id ? (
+                        <>
+                          <Form
+                            method="post"
+                            className="inline"
+                            onSubmit={() => setEditingZoneId(null)}
+                          >
+                            <Input
+                              type="hidden"
+                              name="editZoneId"
+                              value={zone.id}
+                            />
+                            <Input
+                              type="hidden"
+                              name="editZoneName"
+                              value={editedZoneName}
+                            />
+
+                            <Button
+                              type="submit"
+                              className="bg-green-600 text-white px-3 py-1 rounded hover:bg-green-700 text-sm w-20"
+                            >
+                              Spremi
+                            </Button>
+                          </Form>
+                          <Button
+                            onClick={() => {
+                              setEditingZoneId(null);
+                              setEditedZoneName("");
+                            }}
+                            className="bg-gray-300 px-3 py-1 rounded hover:bg-gray-400 text-sm w-20"
+                          >
+                            Odustani
+                          </Button>
+                        </>
+                      ) : (
+                        <Button
+                          onClick={() => {
+                            setEditingZoneId(zone.id);
+                            setEditedZoneName(zone.name);
+                          }}
+                          className="bg-yellow-400 text-white px-3 py-1 rounded hover:bg-yellow-500 text-sm w-20 text-center"
+                        >
+                          Edit
+                        </Button>
+                      )}
+                    </TableHead>
+                    <TableHead className="border p-2 text-center w-1">
+                      <Button
+                        onClick={() => setZoneToDelete(zone.id)}
+                        className="bg-red-600 text-white px-3 py-1 rounded hover:bg-red-700 text-sm w-20 text-center"
+                        type="button"
                       >
-                        Edit
-                      </button>
-                    )}
-                  </td>
-                  <td className="border p-2 text-center w-1">
-                    <button
-                      onClick={() => setZoneToDelete(zone.id)}
-                      className="bg-red-600 text-white px-3 py-1 rounded hover:bg-red-700 text-sm w-20 text-center"
-                      type="button"
-                    >
-                      Delete
-                    </button>
-                  </td>
-                </tr>
-              ))
+                        Delete
+                      </Button>
+                    </TableHead>
+                  </TableRow>
+                );
+              })
             ) : (
-              <tr>
-                <td
+              <TableRow>
+                <TableHead
                   colSpan={3}
                   className="border p-2 text-center text-gray-500"
                 >
                   Nema zona za prikaz.
-                </td>
-              </tr>
+                </TableHead>
+              </TableRow>
             )}
-          </tbody>
-        </table>
+          </TableBody>
+        </Table>
       </div>
+
       {zoneToDelete !== null && (
         <ConfirmDeleteModal
           title="Potvrda brisanja"

@@ -1,0 +1,52 @@
+                        // google aws 0.40 po milionu
+I. Server side DNS
+
+        ZNAČAJKE:
+
+        a. api
+        b. healt check,
+        c. analitika
+        d. geo-rutiranje            * API treće strane / geo ip database (free?)
+        e. bind-import/export
+        f. udp, tcp, dot
+        g. web-redirect
+        h. alias
+                                                                    (sve cijene domena uvećati za 20%)
+    1. free: 3 subdomain (nema validacije, a, 0 /yr upita oslobađa se)
+    2. 0.3$/zona/mjesec 3$/zona/godina (a, e, f, g, h);            (50 % popusta na dns ako je domena kod nas kupljena)
+    3. 0.6$/zona/mjesec 6$/zona/godina (a, e, f, g, h, c, b);       (30 % popusta na dns ako je domena kod nas kupljena)
+    4. 0.8$/zona/mjesec 8$/zona/godina (a, e, f, g, h, c, b, d);    (20 % popusta na dns ako je domena kod nas kupljena)
+
+    *Ako se pojave korisnici koji generiraju velik promet (u milionima upita) - dodamo doplatu po milionu (0.3$)
+
+II. Client side DNS
+
+        ZNAČAJKE:
+
+        a. udp, tcp,
+        b. doh, dot,
+        c. tracking
+        d. alarms (mail)
+
+        Ovdje još razraditi!
+
+    1. free (a, b) - do 50 k zahtjeva   (na osnovu jednog mog mjerenja)
+    2. unit (a, b) - unlimited querys                1 $/m, 10 $/g
+    3. family (a, b, c, d) - unlimited querys      3 $/m, 30 $/g
+    4. comnunity (a, b, c, d) - unlimited querys   20$/m, 200$/g
+
+
+    //kad udjem u rekord trebam napravit da doda ns1-ns4 i ako do napravi da blokira ostalo add record i forwarding a default ce stajat nasi
+    //basic dva name servera ,a  standardt advance sve 4 
+    //u dodavanje dns rekorda dodati zonu na kraju da vide budale
+    //ako odabere free paket mora odabrat nasu poddomaenuž
+    //enom domain reseler
+    //free domain nema veze sa zonom 
+    //bilings 
+    //dali automatski obnavlja domenu
+
+
+
+
+
+

@@ -16,3 +16,13 @@ export async function sendVerificationEmail(email: string, token: string) {
     html,
   });
 }
+
+export async function sendResetPasswordEmail(email: string, token: string) {
+  const link = `http://localhost:5173/auth/verify?token=${token}`;
+  await resend.emails.send({
+    from:"remix@resend.dev",
+    to: email,
+    subject: "Reset lozinke",
+    html: `<p>Klikni na link da resetiraš lozinku: <a href="${link}">${link}</a></p>`,
+  });
+}

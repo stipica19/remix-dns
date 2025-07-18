@@ -1,16 +1,26 @@
-import { Prisma, ForwardingForwardType } from "@prisma/client";
+import { Prisma, forwarding_forward_type } from "@prisma/client";
 import { ActionFunction, LoaderFunction } from "@remix-run/node";
 import {
   Form,
   json,
   redirect,
   useActionData,
+  useFetcher,
   useLoaderData,
 } from "@remix-run/react";
 import { useState } from "react";
 import AddForwarding from "~/components/AddForwarding";
 import AddRecord from "~/components/AddRecord";
 import ConfirmDeleteModal from "~/components/ConfirmDeleteModal";
+import { Button } from "~/components/ui/button";
+import { Input } from "~/components/ui/input";
+import {
+  Table,
+  TableBody,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "~/components/ui/table";
 import { db } from "~/services/db.server";
 import { concate_rdata } from "~/utils/dns";
 import { requireUser } from "~/utils/session.server";
@@ -112,6 +122,55 @@ export const action: ActionFunction = async ({ request, params }) => {
     return redirect(`/zones/${zoneId}`);
   }
 
+  if (formType === "edit-record") {
+    const recordId = Number(formData.get("recordId"));
+    const name = formData.get("name") as string;
+    const type = Number(formData.get("type"));
+    const data = formData.get("data") as string;
+    const ttl = Number(formData.get("ttl")) * 3600;
+    const priority = Number(formData.get("priority") || "0");
+
+    if (type === 2) {
+      const nsRecords = await db.records.findMany({
+        where: {
+          zone_id: zoneId,
+          type: 2,
+        },
+      });
+
+      const defaultNS = ["ns1.example.com.", "ns2.example.com."]; // <-- tvoji defaultni
+
+      const koristiCustomNS = nsRecords.every(
+        (ns) => !defaultNS.includes(ns.data)
+      );
+
+      if (koristiCustomNS) {
+        // Disable-uj sve osim NS zapisa
+        await db.records.updateMany({
+          where: {
+            zone_id: zoneId,
+            type: { not: 2 }, // sve osim NS
+          },
+          data: {
+            disabled: 1,
+          },
+        });
+      }
+    }
+
+    await db.records.update({
+      where: { id: recordId, zone_id: zoneId },
+      data: {
+        name,
+        type,
+        data,
+        ttl,
+      },
+    });
+
+    return redirect(`/zones/${zoneId}`);
+  }
+
   // ✅ ADD FORWARDING zapis (CNAME)
   if (formType === "forwarding") {
     console.log("Forwarding form submitted");
@@ -153,7 +212,7 @@ export const action: ActionFunction = async ({ request, params }) => {
       data: {
         record_id: createdRecord.id,
         destination_url: data, // ili targetUrl ako ti je čišće
-        forward_type: redirectType as ForwardingForwardType,
+        forward_type: redirectType as forwarding_forward_type,
         disabled: false,
       },
     });
@@ -233,6 +292,11 @@ export default function ZoneDetails() {
   const [activeForm, setActiveForm] = useState<"record" | "forwarding" | null>(
     null
   );
+  const [editingRecordId, setEditingRecordId] = useState<number | null>(null);
+  const [editFormData, setEditFormData] = useState<any>({});
+
+  const fetcher = useFetcher();
+
   const actionData = useActionData<typeof action>();
   const [searchTerm, setSearchTerm] = useState<string>("");
 
@@ -246,6 +310,24 @@ export default function ZoneDetails() {
       recordTypeMap[record.type]?.toLowerCase().includes(query)
     );
   });
+
+  const handleSave = async (recordId: number) => {
+    const formData = new FormData();
+    formData.append("formType", "edit-record");
+    formData.append("recordId", recordId.toString());
+    formData.append("name", editFormData.name);
+    formData.append("type", editFormData.type);
+    formData.append("data", editFormData.data);
+    formData.append("ttl", editFormData.ttl);
+    formData.append("priority", editFormData.priority || "0");
+
+    fetcher.submit(formData, {
+      method: "post",
+      action: window.location.pathname,
+    });
+
+    setEditingRecordId(null); // ili refetch loader ako koristiš loader sveže
+  };
   return (
     <div className="space-y-6">
       <h1 className="text-2xl font-bold">
@@ -253,7 +335,7 @@ export default function ZoneDetails() {
       </h1>
 
       <div className="flex items-center space-x-10 mb-4">
-        <button
+        <Button
           className="bg-gray-500 hover:bg-gray-400 p-2 text-white rounded flex items-center space-x-2"
           onClick={() =>
             setActiveForm((prev) => (prev === "record" ? null : "record"))
@@ -275,9 +357,9 @@ export default function ZoneDetails() {
             />
           </svg>
           <span>Add new Record</span>
-        </button>
+        </Button>
 
-        <button
+        <Button
           className="bg-blue-500 hover:bg-blue-400 p-2 text-white rounded flex items-center space-x-2"
           onClick={() =>
             setActiveForm((prev) =>
@@ -301,8 +383,9 @@ export default function ZoneDetails() {
             />
           </svg>
           <span>Add new Forwarding</span>
-        </button>
-        <input
+        </Button>
+
+        <Input
           className="w-64 bg-transparent placeholder:text-slate-400 text-slate-700 text-sm border border-slate-200 rounded-md p-2.5  transition duration-300 ease focus:outline-none focus:border-slate-400 hover:border-slate-300 shadow-sm focus:shadow"
           placeholder="Search..."
           onChange={(e) => setSearchTerm(e.target.value)}
@@ -322,52 +405,158 @@ export default function ZoneDetails() {
           <AddForwarding onCancel={() => setActiveForm(null)} zone={zone} />
         </div>
       )}
-      {filteredRecords.length === 0 ? (
+      {filteredRecords.lengTableHead === 0 ? (
         <p className="text-gray-600"> Ova zona trenutno nema zapisa.</p>
       ) : (
         <div className="overflow-x-auto">
-          <table className="w-full table-auto border-collapse border border-gray-300">
-            <thead className="bg-gray-100">
-              <tr>
-                <th className="border p-2 text-left">Name</th>
-                <th className="border p-2 text-left">Type</th>
-                <th className="border p-2 text-left">Data / Value</th>
-                <th className="border p-2 text-left">TTL</th>
+          <Table className="w-full table-auto border-collapse border border-gray-300">
+            <TableHeader className="bg-gray-100">
+              <TableRow>
+                <TableHead className="border p-2 text-left">Name</TableHead>
+                <TableHead className="border p-2 text-left">Type</TableHead>
+                <TableHead className="border p-2 text-left">
+                  Data / Value
+                </TableHead>
+                <TableHead className="border p-2 text-left">TTL</TableHead>
 
-                <th className="border p-2 text-center w-20 whitespace-nowrap">
+                <TableHead className="border p-2 text-center w-20 whitespace-nowrap">
                   Edit
-                </th>
-                <th className="border p-2 text-center w-20 whitespace-nowrap">
+                </TableHead>
+                <TableHead className="border p-2 text-center w-20 whitespace-nowrap">
                   Delete
-                </th>
-              </tr>
-            </thead>
-            <tbody>
+                </TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
               {filteredRecords.map((record: any) => (
-                <tr key={record.id} className="hover:bg-gray-50">
-                  <td className="border p-2">{record.name}</td>
-                  <td className="border p-2">
-                    {recordTypeMap[record.type] || record.type}
-                  </td>
-                  <td className="border p-2">{record.data}</td>
-                  <td className="border p-2">{record.ttl}</td>
-                  <td>
-                    <button className="bg-yellow-400 text-white px-3 py-1 rounded hover:bg-yellow-500 text-sm w-20 text-center">
-                      Edit
-                    </button>
-                  </td>
-                  <td>
-                    <button
-                      onClick={() => setRecordToDelete(record.id)}
-                      className="bg-red-400 text-white px-3 py-1 rounded hover:bg-red-500 text-sm w-20 text-center"
-                    >
-                      Delete
-                    </button>
-                  </td>
-                </tr>
+                <TableRow
+                  key={record.id}
+                  className={`hover:bg-gray-50 ${
+                    record.disabled
+                      ? "bg-gray-100 text-gray-300 cursor-not-allowed"
+                      : ""
+                  }`}
+                >
+                  {editingRecordId === record.id ? (
+                    <>
+                      <TableHead className="border p-2">
+                        <Input
+                          value={editFormData.name}
+                          onChange={(e) =>
+                            setEditFormData({
+                              ...editFormData,
+                              name: e.target.value,
+                            })
+                          }
+                          className="border p-1 rounded w-full"
+                        />
+                      </TableHead>
+                      <TableHead className="border p-2">
+                        <select
+                          value={editFormData.type}
+                          onChange={(e) =>
+                            setEditFormData({
+                              ...editFormData,
+                              type: e.target.value,
+                            })
+                          }
+                          className="border p-1 rounded w-full"
+                        >
+                          <option value="1">A</option>
+                          <option value="28">AAAA</option>
+                          <option value="5">CNAME</option>
+                          <option value="15">MX</option>
+                          <option value="2">NS</option>
+                        </select>
+                      </TableHead>
+                      <TableHead className="border p-2">
+                        <Input
+                          value={editFormData.data}
+                          onChange={(e) =>
+                            setEditFormData({
+                              ...editFormData,
+                              data: e.target.value,
+                            })
+                          }
+                          className="border p-1 rounded w-full"
+                        />
+                      </TableHead>
+                      <TableHead className="border p-2">
+                        <Input
+                          type="number"
+                          value={editFormData.ttl}
+                          onChange={(e) =>
+                            setEditFormData({
+                              ...editFormData,
+                              ttl: e.target.value,
+                            })
+                          }
+                          className="border p-1 rounded w-full"
+                        />
+                      </TableHead>
+                      <TableHead className="border p-2 flex gap-2 justify-center">
+                        <Button
+                          onClick={() => handleSave(record.id)}
+                          className="bg-green-500 hover:bg-green-600 text-white px-2 py-1 rounded text-sm"
+                        >
+                          Save
+                        </Button>
+                        <Button
+                          onClick={() => setEditingRecordId(null)}
+                          className="bg-gray-400 hover:bg-gray-500 text-white px-2 py-1 rounded text-sm"
+                        >
+                          Cancel
+                        </Button>
+                      </TableHead>
+                      <TableHead></TableHead>
+                    </>
+                  ) : (
+                    <>
+                      <TableHead className="border p-2 text-black">
+                        {record.name}
+                      </TableHead>
+                      <TableHead className="border p-2 text-black">
+                        {recordTypeMap[record.type] || record.type}
+                      </TableHead>
+                      <TableHead className="border p-2 text-black">
+                        {record.data}
+                      </TableHead>
+                      <TableHead className="border p-2 text-black">
+                        {record.ttl}
+                      </TableHead>
+                      <TableHead className="border p-2 text-center ">
+                        <Button
+                          disabled={record.disabled}
+                          className="bg-yellow-400 text-white px-3 py-1 rounded hover:bg-yellow-500 text-sm"
+                          onClick={() => {
+                            setEditingRecordId(record.id);
+                            setEditFormData({
+                              name: record.name,
+                              type: String(record.type),
+                              data: record.data,
+                              ttl: String(record.ttl / 3600),
+                              priority: record.priority || "",
+                            });
+                          }}
+                        >
+                          Edit
+                        </Button>
+                      </TableHead>
+                      <TableHead className="border p-2 text-center">
+                        <Button
+                          disabled={record.disabled}
+                          onClick={() => setRecordToDelete(record.id)}
+                          className="bg-red-400 text-white px-3 py-1 rounded hover:bg-red-500 text-sm"
+                        >
+                          Delete
+                        </Button>
+                      </TableHead>
+                    </>
+                  )}
+                </TableRow>
               ))}
-            </tbody>
-          </table>
+            </TableBody>
+          </Table>
         </div>
       )}
 
