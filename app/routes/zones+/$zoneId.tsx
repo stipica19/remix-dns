@@ -13,6 +13,7 @@ import AddForwarding from "~/components/AddForwarding";
 import AddRecord from "~/components/AddRecord";
 import ConfirmDeleteModal from "~/components/ConfirmDeleteModal";
 import { Button } from "~/components/ui/button";
+import { Checkbox } from "~/components/ui/checkbox";
 import { Input } from "~/components/ui/input";
 import {
   Table,
@@ -65,6 +66,8 @@ export const loader: LoaderFunction = async ({ request, params }) => {
       id: "asc",
     },
   });
+
+  console.log("Recordi" + records[2]?.type);
 
   return json({ zone, records });
 };
@@ -294,6 +297,7 @@ export default function ZoneDetails() {
   );
   const [editingRecordId, setEditingRecordId] = useState<number | null>(null);
   const [editFormData, setEditFormData] = useState<any>({});
+  const [routingPolicy, setRoutingPolicy] = useState<boolean>(false);
 
   const fetcher = useFetcher();
 
@@ -301,6 +305,18 @@ export default function ZoneDetails() {
   const [searchTerm, setSearchTerm] = useState<string>("");
 
   const { zone, records } = useLoaderData<typeof loader>();
+
+  console.log("Recordi " + records[2]?.type);
+
+  const countAorAAAA = records.some((record) => {
+    if (record.type === 1 || record.type === 28) {
+      const count = records.filter(
+        (r) => r.name === record.name && (r.type === 1 || r.type === 28)
+      ).length;
+      return count >= 2;
+    }
+    return false;
+  });
 
   const filteredRecords = records.filter((record: any) => {
     const query = searchTerm.toLowerCase();
@@ -383,6 +399,14 @@ export default function ZoneDetails() {
             />
           </svg>
           <span>Add new Forwarding</span>
+        </Button>
+
+        <Button
+          className="bg-blue-500 hover:bg-blue-400 p-2 text-white rounded flex items-center space-x-2"
+          onClick={() => setRoutingPolicy((prev) => !prev)}
+          disabled={!countAorAAAA}
+        >
+          <span>Routing policy</span>
         </Button>
 
         <Input
@@ -513,6 +537,10 @@ export default function ZoneDetails() {
                   ) : (
                     <>
                       <TableHead className="border p-2 text-black">
+                        {routingPolicy &&
+                          (record.type === 1 || record.type === 28) && (
+                            <Checkbox />
+                          )}{" "}
                         {record.name}
                       </TableHead>
                       <TableHead className="border p-2 text-black">
