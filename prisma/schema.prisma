@@ -91,6 +91,7 @@ model users {
   created_at      DateTime?   @default(now()) @db.Timestamp(0)
   orders          orders[]
   role_user       role_user[]
+  sessions        sessions[]
   user_tokens     UserToken[]
 }
 
@@ -174,6 +175,17 @@ model zone_package {
 
   @@index([order_item_id], map: "order_item_id")
   @@index([zone_id], map: "zone_id")
+}
+
+model sessions {
+  id              Int      @id @default(autoincrement())
+  expiration_date DateTime @db.DateTime(0)
+  created_at      DateTime @default(now()) @db.DateTime(0)
+  updated_at      DateTime @default(now()) @db.DateTime(0)
+  user_id         Int
+  users           users    @relation(fields: [user_id], references: [id], onDelete: Cascade, map: "fk_user_id")
+
+  @@index([user_id], map: "idx_user_id")
 }
 
 enum forwarding_forward_type {

@@ -3,7 +3,7 @@ import { db } from "~/services/db.server";
 
 export const action: ActionFunction = async ({ request }) => {
   const body = await request.json();
-  const { userId, packageId, amount,period,zoneId } = body;
+  const { userId, packageId, amount, period, zoneId } = body;
 
   console.log("body-----------------------------------------", body);
 
@@ -21,7 +21,7 @@ export const action: ActionFunction = async ({ request }) => {
   }
 
   // 2. Kreiraj order
-const order = await db.orders.create({
+  const order = await db.orders.create({
     data: {
       user_id: userId,
       status: "paid",
@@ -51,7 +51,7 @@ const order = await db.orders.create({
 
   await db.zones.update({
     where: { id: zoneId },
-    data: { is_active: 1 },
+    data: { is_active: true },
   });
 
   return json({ success: true });

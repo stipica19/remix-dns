@@ -1,8 +1,6 @@
 import { Form, Link } from "@remix-run/react";
 import { json, type ActionFunction } from "@remix-run/node";
-import bcrypt from "bcryptjs";
-import { createUserSession } from "~/utils/session.server";
-import { db } from "~/services/db.server";
+import { createUserSession, login } from "~/utils/session.server";
 
 export const action: ActionFunction = async ({ request }) => {
   const formData = await request.formData();
@@ -13,31 +11,11 @@ export const action: ActionFunction = async ({ request }) => {
     return json({ error: "Email i lozinka su obavezni" }, { status: 400 });
   }
 
-  const user = await db.users.findFirst({
-    where: {
-      email: email,
-      password: { not: null },
-    },
-  });
-
-  if (!user) {
-    return json(
-      { error: "Korisnik ne postoji ili koristi Google prijavu" },
-      { status: 400 }
-    );
+  const session = await login({ email, password });
+  if (!session) {
+    return json({ error: "Pogrešan email ili lozinka" }, { status: 401 });
   }
-  if (typeof user.password !== "string") {
-    return json(
-      { error: "Došlo je do greške sa lozinkom korisnika" },
-      { status: 400 }
-    );
-  }
-  const isCorrectPassword = await bcrypt.compare(password, user.password);
-
-  if (!isCorrectPassword) {
-    return json({ error: "Pogrešna lozinka" }, { status: 400 });
-  }
-  return createUserSession(user.id, "/zones");
+  return createUserSession(session.id, "/zones");
 };
 
 export default function Login() {

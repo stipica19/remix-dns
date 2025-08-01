@@ -1,19 +1,25 @@
 import { Prisma, forwarding_forward_type } from "@prisma/client";
+import { Dialog } from "@radix-ui/react-dialog";
 import { ActionFunction, LoaderFunction } from "@remix-run/node";
 import {
   Form,
   json,
+  Link,
   redirect,
   useActionData,
   useFetcher,
   useLoaderData,
+  useNavigate,
 } from "@remix-run/react";
+import { ArrowBigLeft, Backpack, Edit, SkipBack } from "lucide-react";
 import { useState } from "react";
 import AddForwarding from "~/components/AddForwarding";
 import AddRecord from "~/components/AddRecord";
 import ConfirmDeleteModal from "~/components/ConfirmDeleteModal";
+import EditNameServersDialog from "~/components/Records/EditNameServersDialog";
 import { Button } from "~/components/ui/button";
 import { Checkbox } from "~/components/ui/checkbox";
+
 import { Input } from "~/components/ui/input";
 import {
   Table,
@@ -23,6 +29,7 @@ import {
   TableRow,
 } from "~/components/ui/table";
 import { db } from "~/services/db.server";
+import { DNSRecord } from "~/types/record";
 import { concate_rdata } from "~/utils/dns";
 import { requireUser } from "~/utils/session.server";
 
@@ -38,7 +45,8 @@ const recordTypeMap: Record<number, string> = {
 
 //  Loader koji štiti pristup i vraća zonu + njene recordse
 export const loader: LoaderFunction = async ({ request, params }) => {
-  const user = await requireUser(request);
+  const user_id = await requireUser(request);
+
   const zoneId = Number(params.zoneId);
 
   if (isNaN(zoneId)) {
@@ -49,7 +57,7 @@ export const loader: LoaderFunction = async ({ request, params }) => {
   const zone = await db.zones.findFirst({
     where: {
       id: zoneId,
-      user_id: user.id,
+      user_id: user_id,
     },
   });
 
@@ -67,13 +75,12 @@ export const loader: LoaderFunction = async ({ request, params }) => {
     },
   });
 
-  console.log("Recordi" + records[2]?.type);
-
   return json({ zone, records });
 };
 
 export const action: ActionFunction = async ({ request, params }) => {
-  const user = await requireUser(request);
+  const user_id = await requireUser(request);
+  console.log(user_id + " user_id");
   const zoneId = Number(params.zoneId);
 
   if (isNaN(zoneId)) {
@@ -86,7 +93,7 @@ export const action: ActionFunction = async ({ request, params }) => {
   const zone = await db.zones.findFirst({
     where: {
       id: zoneId,
-      user_id: user.id,
+      user_id: user_id,
     },
   });
 
@@ -133,34 +140,6 @@ export const action: ActionFunction = async ({ request, params }) => {
     const ttl = Number(formData.get("ttl")) * 3600;
     const priority = Number(formData.get("priority") || "0");
 
-    if (type === 2) {
-      const nsRecords = await db.records.findMany({
-        where: {
-          zone_id: zoneId,
-          type: 2,
-        },
-      });
-
-      const defaultNS = ["ns1.example.com.", "ns2.example.com."]; // <-- tvoji defaultni
-
-      const koristiCustomNS = nsRecords.every(
-        (ns) => !defaultNS.includes(ns.data)
-      );
-
-      if (koristiCustomNS) {
-        // Disable-uj sve osim NS zapisa
-        await db.records.updateMany({
-          where: {
-            zone_id: zoneId,
-            type: { not: 2 }, // sve osim NS
-          },
-          data: {
-            disabled: 1,
-          },
-        });
-      }
-    }
-
     await db.records.update({
       where: { id: recordId, zone_id: zoneId },
       data: {
@@ -172,6 +151,52 @@ export const action: ActionFunction = async ({ request, params }) => {
     });
 
     return redirect(`/zones/${zoneId}`);
+  }
+
+  if (formData.get("intent") === "update-ns") {
+    const primaryId = Number(formData.get("primary_id"));
+    const secondaryId = Number(formData.get("secondary_id"));
+    const primaryNs = formData.get("primary_ns")?.toString() ?? "";
+    const secondaryNs = formData.get("secondary_ns")?.toString() ?? "";
+
+    const defaultNS = ["ns1.example.com.", "ns2.example.com."];
+
+    // 1. Ažuriraj NS zapise
+    await db.records.update({
+      where: { id: primaryId },
+      data: { data: primaryNs },
+    });
+
+    await db.records.update({
+      where: { id: secondaryId },
+      data: { data: secondaryNs },
+    });
+
+    // 2. Nakon ažuriranja provjeri nove NS zapise
+    const azuriraniNS = await db.records.findMany({
+      where: {
+        zone_id: zoneId,
+        type: 2,
+      },
+    });
+
+    const koristiDefaultNS = azuriraniNS.every((ns) =>
+      defaultNS.includes(ns.data)
+    );
+
+    // 3. Ako su defaultni → ENABLE ostale zapise
+    //    Ako nisu defaultni → DISABLE ostale zapise
+    await db.records.updateMany({
+      where: {
+        zone_id: zoneId,
+        type: { not: 2 },
+      },
+      data: {
+        disabled: koristiDefaultNS ? 0 : 1,
+      },
+    });
+
+    return json({ success: true });
   }
 
   // ✅ ADD FORWARDING zapis (CNAME)
@@ -298,28 +323,62 @@ export default function ZoneDetails() {
   const [editingRecordId, setEditingRecordId] = useState<number | null>(null);
   const [editFormData, setEditFormData] = useState<any>({});
   const [routingPolicy, setRoutingPolicy] = useState<boolean>(false);
+  const [selectedRecords, setSelectedRecords] = useState<DNSRecord[]>([]);
 
   const fetcher = useFetcher();
+  const navigate = useNavigate();
 
   const actionData = useActionData<typeof action>();
   const [searchTerm, setSearchTerm] = useState<string>("");
 
   const { zone, records } = useLoaderData<typeof loader>();
 
-  console.log("Recordi " + records[2]?.type);
-
-  const countAorAAAA = records.some((record) => {
-    if (record.type === 1 || record.type === 28) {
-      const count = records.filter(
-        (r) => r.name === record.name && (r.type === 1 || r.type === 28)
-      ).length;
-      return count >= 2;
+  const countA = records.filter((r) => r.type === 1).length;
+  const countAAAA = records.filter((r) => r.type === 28).length;
+  // Grupiraj A/AAAA po name
+  const nameMap: Record<string, number> = {};
+  records.forEach((r) => {
+    if (r.type === 1 || r.type === 28) {
+      nameMap[r.name] = (nameMap[r.name] || 0) + 1;
     }
-    return false;
   });
+  const hasDuplicateAorAAAANames = Object.values(nameMap).some(
+    (count) => count >= 2
+  );
 
-  const filteredRecords = records.filter((record: any) => {
+  // Finalni uvjet
+  const hasMin2AorAAAAorSameName =
+    countA >= 2 || countAAAA >= 2 || hasDuplicateAorAAAANames;
+
+  const handleCheckboxClick = (clickedRecord: DNSRecord) => {
+    const alreadySelected = selectedRecords.some(
+      (r) => r.id === clickedRecord.id
+    );
+
+    if (alreadySelected) {
+      // Ako je već selektovan ➝ resetuj sve
+      setSelectedRecords([]);
+      return;
+    }
+
+    const matchedRecords = records.filter(
+      (r) =>
+        r.id === clickedRecord.id ||
+        r.type === clickedRecord.type ||
+        r.name === clickedRecord.name
+    );
+
+    const limitedRecords = matchedRecords.slice(0, 2);
+    setSelectedRecords(limitedRecords);
+  };
+
+  const nsRecords: DNSRecord[] = records.filter(
+    (record: DNSRecord) => record.type === 2
+  );
+
+  const filteredRecords: DNSRecord[] = records.filter((record: DNSRecord) => {
     const query = searchTerm.toLowerCase();
+    if (record.type === 2) return false;
     return (
       record.name?.toLowerCase().includes(query) ||
       record.data?.toLowerCase().includes(query) ||
@@ -346,247 +405,275 @@ export default function ZoneDetails() {
   };
   return (
     <div className="space-y-6">
-      <h1 className="text-2xl font-bold">
-        DNS zapisi za zonu <span> {zone.name}</span>
-      </h1>
-
-      <div className="flex items-center space-x-10 mb-4">
-        <Button
-          className="bg-gray-500 hover:bg-gray-400 p-2 text-white rounded flex items-center space-x-2"
-          onClick={() =>
-            setActiveForm((prev) => (prev === "record" ? null : "record"))
-          }
+      <div className="flex items-center space-x-4">
+        <span
+          onClick={() => navigate(-1)}
+          className="cursor-pointer text-sm text-gray-600 hover:text-black flex items-center"
         >
-          {/* SVG ikona npr. plus */}
-          <svg
-            xmlns="http://www.w3.org/2000/svg"
-            className="h-5 w-5"
-            fill="none"
-            viewBox="0 0 24 24"
-            stroke="currentColor"
-          >
-            <path
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              strokeWidth={2}
-              d="M12 4v16m8-8H4"
-            />
-          </svg>
-          <span>Add new Record</span>
-        </Button>
-
-        <Button
-          className="bg-blue-500 hover:bg-blue-400 p-2 text-white rounded flex items-center space-x-2"
-          onClick={() =>
-            setActiveForm((prev) =>
-              prev === "forwarding" ? null : "forwarding"
-            )
-          }
-        >
-          {/* Druga SVG ikona npr. link (za forwarding) */}
-          <svg
-            xmlns="http://www.w3.org/2000/svg"
-            className="h-5 w-5"
-            fill="none"
-            viewBox="0 0 24 24"
-            stroke="currentColor"
-          >
-            <path
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              strokeWidth={2}
-              d="M12 4v16m8-8H4"
-            />
-          </svg>
-          <span>Add new Forwarding</span>
-        </Button>
-
-        <Button
-          className="bg-blue-500 hover:bg-blue-400 p-2 text-white rounded flex items-center space-x-2"
-          onClick={() => setRoutingPolicy((prev) => !prev)}
-          disabled={!countAorAAAA}
-        >
-          <span>Routing policy</span>
-        </Button>
-
-        <Input
-          className="w-64 bg-transparent placeholder:text-slate-400 text-slate-700 text-sm border border-slate-200 rounded-md p-2.5  transition duration-300 ease focus:outline-none focus:border-slate-400 hover:border-slate-300 shadow-sm focus:shadow"
-          placeholder="Search..."
-          onChange={(e) => setSearchTerm(e.target.value)}
-          value={searchTerm}
-        />
+          <ArrowBigLeft className="mr-1" />
+          Back
+        </span>{" "}
+        <h1 className="text-2xl font-bold">
+          DNS zapisi za zonu <span> {zone.name}</span>
+        </h1>
       </div>
-      {actionData?.error && (
-        <p className="text-red-600 font-medium bg-red-100 p-2 rounded">
-          ⚠ {actionData.error}
-        </p>
-      )}
-      {activeForm === "record" && (
-        <AddRecord onCancel={() => setActiveForm(null)} />
-      )}
-      {activeForm === "forwarding" && (
-        <div className="mt-8">
-          <AddForwarding onCancel={() => setActiveForm(null)} zone={zone} />
-        </div>
-      )}
-      {filteredRecords.lengTableHead === 0 ? (
-        <p className="text-gray-600"> Ova zona trenutno nema zapisa.</p>
-      ) : (
-        <div className="overflow-x-auto">
-          <Table className="w-full table-auto border-collapse border border-gray-300">
-            <TableHeader className="bg-gray-100">
-              <TableRow>
-                <TableHead className="border p-2 text-left">Name</TableHead>
-                <TableHead className="border p-2 text-left">Type</TableHead>
-                <TableHead className="border p-2 text-left">
-                  Data / Value
-                </TableHead>
-                <TableHead className="border p-2 text-left">TTL</TableHead>
+      <div className="bg-white rounded-sm p-8 shadow mb-4 space-x-4">
+        <div className="flex mb-4 items-center justify-between">
+          <h1 className="text-xl font-semibold">DNS Records </h1>
+          <div className="flex items-center space-x-4 ml-auto">
+            <Button
+              className="bg-gray-500 hover:bg-gray-400 p-2 text-white rounded flex items-center space-x-2"
+              onClick={() =>
+                setActiveForm((prev) => (prev === "record" ? null : "record"))
+              }
+            >
+              {/* SVG ikona npr. plus */}
+              <svg
+                xmlns="http://www.w3.org/2000/svg"
+                className="h-5 w-5"
+                fill="none"
+                viewBox="0 0 24 24"
+                stroke="currentColor"
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={2}
+                  d="M12 4v16m8-8H4"
+                />
+              </svg>
+              <span>Add new Record</span>
+            </Button>
 
-                <TableHead className="border p-2 text-center w-20 whitespace-nowrap">
-                  Edit
-                </TableHead>
-                <TableHead className="border p-2 text-center w-20 whitespace-nowrap">
-                  Delete
-                </TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {filteredRecords.map((record: any) => (
-                <TableRow
-                  key={record.id}
-                  className={`hover:bg-gray-50 ${
-                    record.disabled
-                      ? "bg-gray-100 text-gray-300 cursor-not-allowed"
-                      : ""
-                  }`}
-                >
-                  {editingRecordId === record.id ? (
-                    <>
-                      <TableHead className="border p-2">
-                        <Input
-                          value={editFormData.name}
-                          onChange={(e) =>
-                            setEditFormData({
-                              ...editFormData,
-                              name: e.target.value,
-                            })
-                          }
-                          className="border p-1 rounded w-full"
-                        />
-                      </TableHead>
-                      <TableHead className="border p-2">
-                        <select
-                          value={editFormData.type}
-                          onChange={(e) =>
-                            setEditFormData({
-                              ...editFormData,
-                              type: e.target.value,
-                            })
-                          }
-                          className="border p-1 rounded w-full"
-                        >
-                          <option value="1">A</option>
-                          <option value="28">AAAA</option>
-                          <option value="5">CNAME</option>
-                          <option value="15">MX</option>
-                          <option value="2">NS</option>
-                        </select>
-                      </TableHead>
-                      <TableHead className="border p-2">
-                        <Input
-                          value={editFormData.data}
-                          onChange={(e) =>
-                            setEditFormData({
-                              ...editFormData,
-                              data: e.target.value,
-                            })
-                          }
-                          className="border p-1 rounded w-full"
-                        />
-                      </TableHead>
-                      <TableHead className="border p-2">
-                        <Input
-                          type="number"
-                          value={editFormData.ttl}
-                          onChange={(e) =>
-                            setEditFormData({
-                              ...editFormData,
-                              ttl: e.target.value,
-                            })
-                          }
-                          className="border p-1 rounded w-full"
-                        />
-                      </TableHead>
-                      <TableHead className="border p-2 flex gap-2 justify-center">
-                        <Button
-                          onClick={() => handleSave(record.id)}
-                          className="bg-green-500 hover:bg-green-600 text-white px-2 py-1 rounded text-sm"
-                        >
-                          Save
-                        </Button>
-                        <Button
-                          onClick={() => setEditingRecordId(null)}
-                          className="bg-gray-400 hover:bg-gray-500 text-white px-2 py-1 rounded text-sm"
-                        >
-                          Cancel
-                        </Button>
-                      </TableHead>
-                      <TableHead></TableHead>
-                    </>
-                  ) : (
-                    <>
-                      <TableHead className="border p-2 text-black">
-                        {routingPolicy &&
-                          (record.type === 1 || record.type === 28) && (
-                            <Checkbox />
-                          )}{" "}
-                        {record.name}
-                      </TableHead>
-                      <TableHead className="border p-2 text-black">
-                        {recordTypeMap[record.type] || record.type}
-                      </TableHead>
-                      <TableHead className="border p-2 text-black">
-                        {record.data}
-                      </TableHead>
-                      <TableHead className="border p-2 text-black">
-                        {record.ttl}
-                      </TableHead>
-                      <TableHead className="border p-2 text-center ">
-                        <Button
-                          disabled={record.disabled}
-                          className="bg-yellow-400 text-white px-3 py-1 rounded hover:bg-yellow-500 text-sm"
-                          onClick={() => {
-                            setEditingRecordId(record.id);
-                            setEditFormData({
-                              name: record.name,
-                              type: String(record.type),
-                              data: record.data,
-                              ttl: String(record.ttl / 3600),
-                              priority: record.priority || "",
-                            });
-                          }}
-                        >
-                          Edit
-                        </Button>
-                      </TableHead>
-                      <TableHead className="border p-2 text-center">
-                        <Button
-                          disabled={record.disabled}
-                          onClick={() => setRecordToDelete(record.id)}
-                          className="bg-red-400 text-white px-3 py-1 rounded hover:bg-red-500 text-sm"
-                        >
-                          Delete
-                        </Button>
-                      </TableHead>
-                    </>
-                  )}
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
+            <Button
+              className="bg-blue-500 hover:bg-blue-400 p-2 text-white rounded flex items-center space-x-2"
+              onClick={() =>
+                setActiveForm((prev) =>
+                  prev === "forwarding" ? null : "forwarding"
+                )
+              }
+            >
+              {/* Druga SVG ikona npr. link (za forwarding) */}
+              <svg
+                xmlns="http://www.w3.org/2000/svg"
+                className="h-5 w-5"
+                fill="none"
+                viewBox="0 0 24 24"
+                stroke="currentColor"
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={2}
+                  d="M12 4v16m8-8H4"
+                />
+              </svg>
+              <span>Add new Forwarding</span>
+            </Button>
+
+            <Button
+              className="bg-white hover:bg-gray-200 p-2 text-blue-600 border border-blue-500 rounded flex items-center space-x-2"
+              onClick={() => setRoutingPolicy((prev) => !prev)}
+              disabled={!hasMin2AorAAAAorSameName}
+            >
+              <span>Routing policy</span>
+            </Button>
+
+            <Input
+              className="w-64 bg-transparent placeholder:text-slate-400 text-slate-700 text-sm border border-slate-200 rounded-md p-2.5  transition duration-300 ease focus:outline-none focus:border-slate-400 hover:border-slate-300 shadow-sm focus:shadow"
+              placeholder="Search..."
+              onChange={(e) => setSearchTerm(e.target.value)}
+              value={searchTerm}
+            />
+          </div>
         </div>
-      )}
+        {actionData?.error && (
+          <p className="text-red-600 font-medium bg-red-100 p-2 rounded">
+            ⚠ {actionData.error}
+          </p>
+        )}
+        {activeForm === "record" && (
+          <AddRecord onCancel={() => setActiveForm(null)} />
+        )}
+        {activeForm === "forwarding" && (
+          <div className="mt-8">
+            <AddForwarding onCancel={() => setActiveForm(null)} zone={zone} />
+          </div>
+        )}
+        {filteredRecords.length === 0 ? (
+          <p className="text-gray-600"> Ova zona trenutno nema zapisa.</p>
+        ) : (
+          <div className="overflow-x-auto">
+            <Table className="w-full table-auto border-y border-gray-300">
+              <TableHeader className="bg-gray-100">
+                <TableRow>
+                  <TableHead className="border-y p-2 text-left">Name</TableHead>
+                  <TableHead className="border-y p-2 text-left">Type</TableHead>
+                  <TableHead className="border-y p-2 text-left">
+                    Data / Value
+                  </TableHead>
+                  <TableHead className="border-y p-2 text-left">TTL</TableHead>
+
+                  <TableHead className="border-y p-2 text-center w-20 whitespace-nowrap">
+                    Edit
+                  </TableHead>
+                  <TableHead className="border-y p-2 text-center w-20 whitespace-nowrap">
+                    Delete
+                  </TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {filteredRecords.map((record: any) => (
+                  <TableRow
+                    key={record.id}
+                    className={`hover:bg-gray-50 ${
+                      record.disabled
+                        ? "bg-gray-100 text-gray-300 cursor-not-allowed"
+                        : ""
+                    }`}
+                  >
+                    {editingRecordId === record.id ? (
+                      <>
+                        <TableHead className="border p-2">
+                          <Input
+                            value={editFormData.name}
+                            onChange={(e) =>
+                              setEditFormData({
+                                ...editFormData,
+                                name: e.target.value,
+                              })
+                            }
+                            className="border-y p-1 rounded w-full"
+                          />
+                        </TableHead>
+                        <TableHead className="border-y p-2">
+                          <select
+                            value={editFormData.type}
+                            onChange={(e) =>
+                              setEditFormData({
+                                ...editFormData,
+                                type: e.target.value,
+                              })
+                            }
+                            className="border p-1 rounded w-full"
+                          >
+                            <option value="1">A</option>
+                            <option value="28">AAAA</option>
+                            <option value="5">CNAME</option>
+                            <option value="15">MX</option>
+                            <option value="2">NS</option>
+                          </select>
+                        </TableHead>
+                        <TableHead className="border-y p-2">
+                          <Input
+                            value={editFormData.data}
+                            onChange={(e) =>
+                              setEditFormData({
+                                ...editFormData,
+                                data: e.target.value,
+                              })
+                            }
+                            className="border-y p-1 rounded w-full"
+                          />
+                        </TableHead>
+                        <TableHead className="border-y p-2">
+                          <Input
+                            type="number"
+                            value={editFormData.ttl}
+                            onChange={(e) =>
+                              setEditFormData({
+                                ...editFormData,
+                                ttl: e.target.value,
+                              })
+                            }
+                            className="border-y p-1 rounded w-full"
+                          />
+                        </TableHead>
+                        <TableHead className="border-y p-2 flex gap-2 justify-center">
+                          <Button
+                            onClick={() => handleSave(record.id)}
+                            className="bg-green-500 hover:bg-green-600 text-white px-2 py-1 rounded text-sm"
+                          >
+                            Save
+                          </Button>
+                          <Button
+                            onClick={() => setEditingRecordId(null)}
+                            className="bg-gray-400 hover:bg-gray-500 text-white px-2 py-1 rounded text-sm"
+                          >
+                            Cancel
+                          </Button>
+                        </TableHead>
+                        <TableHead></TableHead>
+                      </>
+                    ) : (
+                      <>
+                        <TableHead className="border-y p-2 text-black">
+                          {routingPolicy &&
+                            (record.type === 1 || record.type === 28) &&
+                            (selectedRecords.length === 0 ||
+                              selectedRecords.some(
+                                (r) => r.id === record.id
+                              )) && (
+                              <Checkbox
+                                checked={selectedRecords.some(
+                                  (r) => r.id === record.id
+                                )}
+                                onCheckedChange={() =>
+                                  handleCheckboxClick(record)
+                                }
+                              />
+                            )}
+
+                          {record.name}
+                        </TableHead>
+
+                        <TableHead className="border-y p-2 text-black">
+                          {recordTypeMap[record.type] || record.type}
+                        </TableHead>
+                        <TableHead className="border-y p-2 text-black">
+                          {record.data}
+                        </TableHead>
+                        <TableHead className="border-y p-2 text-black">
+                          {record.ttl}
+                        </TableHead>
+                        <TableHead className="border-y p-2 text-center ">
+                          <Button
+                            disabled={record.disabled}
+                            className="bg-yellow-400 text-white px-3 py-1 rounded hover:bg-yellow-500 text-sm"
+                            onClick={() => {
+                              setEditingRecordId(record.id);
+                              setEditFormData({
+                                name: record.name,
+                                type: String(record.type),
+                                data: record.data,
+                                ttl: String(record.ttl / 3600),
+                                priority: record.priority || "",
+                              });
+                            }}
+                          >
+                            Edit
+                          </Button>
+                        </TableHead>
+                        <TableHead className="border-y p-2 text-center">
+                          <Button
+                            disabled={record.disabled}
+                            onClick={() => setRecordToDelete(record.id)}
+                            className="bg-red-400 text-white px-3 py-1 rounded hover:bg-red-500 text-sm"
+                          >
+                            Delete
+                          </Button>
+                        </TableHead>
+                      </>
+                    )}
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </div>
+        )}
+      </div>
+
+      <EditNameServersDialog nsRecords={nsRecords} />
 
       {recordToDelete !== null && (
         <ConfirmDeleteModal

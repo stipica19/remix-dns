@@ -44,7 +44,17 @@ II. Client side DNS
     //free domain nema veze sa zonom 
     //bilings 
     //dali automatski obnavlja domenu
+    1.8.2025
+    //kad se kline na neki trbeaju se ostali iskljucit koji nisu istog name-a ili tipa (✅ ostaje ukljuceno kod istog typa 🟥 nisamsiguran dali treba iskljucit ostale istog tipa ako im je name razlicit)
+    //kad promjenim name server disablat dugmad
+    //kad npr. kliknu add load balancig otvaras modal i unesu 1 broj po rekordu a u modalu stoje samo chekirani rekprdi/ geo rutign regije pod regije zemlje odabrat 
 
+
+//aktivnost zone moram napravit da se gasi nakon isteka ♻️
+
+//provjerit kad brise zonu dali brise sve njegove recorde ♻️
+
+//napravit kad vrati nase name servere da enbled budu recordi ✅✅✅✅✅✅✅❤️❤️❤️❤️❤️❤️
 
 
 

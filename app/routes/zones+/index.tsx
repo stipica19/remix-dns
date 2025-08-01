@@ -21,16 +21,7 @@ import {
 } from "~/components/ui/table";
 import { db } from "~/services/db.server";
 import { requireUser, requireVerifiedUser } from "~/utils/session.server";
-
-interface Zone {
-  id: number;
-  name: string;
-  user_id: number;
-  disabled: boolean;
-  created_at: string | Date;
-  is_active: number; // 0 or 1
-}
-
+import { Zone } from "~/types/zone";
 type Package = {
   id: number;
   name: string;
@@ -41,11 +32,13 @@ type Package = {
 };
 
 export const loader: LoaderFunction = async ({ request }) => {
-  const user = await requireVerifiedUser(request);
+  const user_id = await requireUser(request);
+
+  console.log("user_id", user_id);
 
   const zones = await db.zones.findMany({
     where: {
-      user_id: user.id,
+      user_id: user_id,
     },
     orderBy: { created_at: "desc" },
     include: {
@@ -66,11 +59,11 @@ export const loader: LoaderFunction = async ({ request }) => {
     orderBy: { price_monthly: "asc" },
   });
 
-  return json({ zones, packages, user });
+  return json({ zones, packages, user_id });
 };
 
 export const action: ActionFunction = async ({ request }) => {
-  const user = await requireUser(request);
+  const user_id = await requireUser(request);
   const form = await request.formData();
 
   const editZoneId = form.get("editZoneId");
@@ -81,7 +74,7 @@ export const action: ActionFunction = async ({ request }) => {
     await db.zones.updateMany({
       where: {
         id,
-        user_id: user.id,
+        user_id: user_id,
       },
       data: {
         name: editZoneName.trim(),
@@ -98,7 +91,7 @@ export const action: ActionFunction = async ({ request }) => {
       await db.zones.deleteMany({
         where: {
           id,
-          user_id: user.id,
+          user_id,
         },
       });
     }
@@ -118,7 +111,7 @@ export const action: ActionFunction = async ({ request }) => {
   const existingZone = await db.zones.findFirst({
     where: {
       name: zoneName.trim(),
-      user_id: user.id,
+      user_id: user_id,
     },
   });
 
@@ -129,9 +122,9 @@ export const action: ActionFunction = async ({ request }) => {
   const newZone = await db.zones.create({
     data: {
       name: zoneName.trim(),
-      user_id: user.id,
+      user_id: user_id,
       disabled: false,
-      is_active: 0,
+      is_active: false,
       created_at: new Date(),
     },
   });
@@ -144,7 +137,7 @@ export const action: ActionFunction = async ({ request }) => {
         ttl: 3600,
         data: "ns1.dinio.com.",
         zone_id: newZone.id,
-        user_id: user.id,
+        user_id: user_id,
         created_at: new Date(),
       },
       {
@@ -153,7 +146,7 @@ export const action: ActionFunction = async ({ request }) => {
         ttl: 3600,
         data: "ns2.dinio.com.",
         zone_id: newZone.id,
-        user_id: user.id,
+        user_id: user_id,
         created_at: new Date(),
       },
     ],
@@ -163,7 +156,7 @@ export const action: ActionFunction = async ({ request }) => {
 };
 
 export default function Zones() {
-  const { zones, user, packages } = useLoaderData<typeof loader>();
+  const { zones, user_id, packages } = useLoaderData<typeof loader>();
   const actionData = useActionData<typeof action>();
   const [zoneToDelete, setZoneToDelete] = useState<number | null>(null);
   const [editingZoneId, setEditingZoneId] = useState<number | null>(null);
@@ -208,7 +201,7 @@ export default function Zones() {
         <PaymentModal
           isOpen={true}
           onClose={() => setShowPackageModal(false)}
-          userId={user.id}
+          userId={user_id}
           zoneId={lastCreatedZoneId}
           packages={packages} // šalješ cijelu listu paketa
         />

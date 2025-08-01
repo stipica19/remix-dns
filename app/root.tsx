@@ -15,6 +15,7 @@ import { getUserFromSession } from "~/utils/session.server";
 
 import "./tailwind.css";
 import Sidebar from "./components/Sidebar";
+import { db } from "./services/db.server";
 
 export const links: LinksFunction = () => [
   { rel: "preconnect", href: "https://fonts.googleapis.com" },
@@ -37,7 +38,14 @@ export const meta = () => {
 };
 
 export const loader: LoaderFunction = async ({ request }) => {
-  const user = await getUserFromSession(request);
+  const user_id = await getUserFromSession(request);
+  let user = null;
+  if (user_id !== null && user_id !== undefined) {
+    user = await db.users.findUnique({
+      where: { id: user_id },
+      select: { isVerify: true },
+    });
+  }
   return json({ user });
 };
 
